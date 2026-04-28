@@ -1,0 +1,10 @@
+# Claude Code
+.claude/
+
+# Ignore everything in docs/
+docs/**
+
+# Only allow these two design documents
+!docs/plan/
+!docs/plan/2026-04-01-嵌入式设备管理器设计.md
+!docs/plan/2026-04-28-嵌入式设备管理器-design.md
