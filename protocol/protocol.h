@@ -58,6 +58,8 @@ typedef enum {
     CMD_FILE_DELETE_RESP  = 0x0206,
     CMD_FILE_RENAME       = 0x0207,
     CMD_FILE_RENAME_RESP  = 0x0208,
+    CMD_FILE_EDIT         = 0x0209,
+    CMD_FILE_EDIT_RESP    = 0x020A,
 
     /* 文件传输 0x03xx */
     CMD_FILE_UPLOAD_START         = 0x0301,
@@ -159,6 +161,13 @@ typedef struct __attribute__((packed)) {
 typedef struct __attribute__((packed)) {
     char path[MAX_PATH_LENGTH];
 } file_request_t;
+
+/* 文件编辑请求 */
+typedef struct __attribute__((packed)) {
+    char path[MAX_PATH_LENGTH];
+    uint32_t content_len;    /* 新内容长度 */
+    char new_content[1];     /* 可变长度的新内容（实际长度由content_len指定） */
+} file_edit_request_t;
 
 /* 文件操作响应 */
 typedef struct __attribute__((packed)) {
