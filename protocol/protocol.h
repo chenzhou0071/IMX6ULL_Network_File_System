@@ -21,7 +21,7 @@ extern "C" {
  * ============================================================ */
 #define PROTOCOL_MAGIC          0x46545053  /* 'FTPS' */
 #define PROTOCOL_VERSION        1
-#define MAX_PAYLOAD_SIZE        8192        /* 最大载荷8KB */
+#define MAX_PAYLOAD_SIZE        16384       /* 最大载荷16KB */
 #define MAX_FILENAME_LENGTH     256
 #define MAX_PATH_LENGTH         512
 #define MAX_USERNAME_LENGTH     64

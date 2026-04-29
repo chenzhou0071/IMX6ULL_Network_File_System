@@ -38,6 +38,8 @@ BIN_DIR = .
 # 源文件
 SRCS = $(wildcard $(SRC_DIR)/*.c)
 OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
+# 添加protocol.c
+OBJS += $(BUILD_DIR)/protocol.o
 
 # 头文件路径
 INCLUDES = -I$(INC_DIR) -I$(PROTOCOL_DIR)
@@ -74,6 +76,11 @@ endif
 	@file $@ 2>/dev/null || echo "Built: $@"
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | mkdir
+	@echo "Compiling $<..."
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# 编译protocol.c
+$(BUILD_DIR)/protocol.o: $(PROTOCOL_DIR)/protocol.c | mkdir
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) -c $< -o $@
 
