@@ -8,3 +8,14 @@ docs/**
 !docs/plan/
 !docs/plan/2026-04-01-嵌入式设备管理器设计.md
 !docs/plan/2026-04-28-嵌入式设备管理器-design.md
+
+# Build output
+server/build/
+
+# Logs
+logs/
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
