@@ -20,31 +20,92 @@ static int recv_frame(client_session_t* sess, protocol_frame_t* frame, uint8_t* 
     /* 先接收帧头 */
     int received = tcp_recv(sess->sockfd, buf, sizeof(protocol_frame_t), 5000);
     if (received <= 0) {
-        LOG_DEBUG("Failed to receive frame header");
+        LOG_DEBUG("Failed to receive frame header, received=%d", received);
         return -1;
     }
 
-    /* 解析帧头获取数据长度 */
-    if (protocol_unpack(buf, received, frame, NULL, 0) != 0) {
-        LOG_WARN("Invalid frame header");
+    // 打印收到的原始数据（十六进制）
+    char hex_buf[256] = {0};
+    char tmp[8];
+    for (int i = 0; i < received && i < 64; i++) {
+        snprintf(tmp, sizeof(tmp), "%02X ", buf[i]);
+        strncat(hex_buf, tmp, sizeof(hex_buf) - strlen(hex_buf) - 1);
+    }
+    LOG_DEBUG("Received frame header %d bytes: %s", received, hex_buf);
+
+    /* 先解析帧头获取数据长度（不验证校验和） */
+    protocol_frame_t* f = (protocol_frame_t*)buf;
+    if (f->magic != PROTOCOL_MAGIC) {
+        LOG_WARN("Invalid magic: 0x%08X", f->magic);
         return -1;
     }
 
-    /* 接收数据载荷 */
-    if (frame->length > 0 && frame->length <= MAX_PAYLOAD_SIZE) {
-        received = tcp_recv(sess->sockfd, buf + sizeof(protocol_frame_t), frame->length, 5000);
-        if (received <= 0) {
-            LOG_DEBUG("Failed to receive payload");
-            return -1;
-        }
+    uint32_t data_len = f->length;
+    uint32_t frame_seq = f->seq;
+    uint16_t frame_cmd = f->cmd;
+    uint32_t frame_checksum = f->checksum;  // 直接从结构体读取checksum字段  // checksum在偏移12的位置
 
-        /* 完整解析帧 */
-        if (protocol_unpack(buf, sizeof(protocol_frame_t) + frame->length, frame, payload, MAX_PAYLOAD_SIZE) != 0) {
-            LOG_WARN("Frame checksum failed");
+    LOG_DEBUG("Frame: cmd=0x%04X, seq=%u, len=%u, checksum=0x%08X",
+              frame_cmd, frame_seq, data_len, frame_checksum);
+
+    /* 接收完整数据：帧头(20) + 数据(len) */
+    uint32_t need_len = sizeof(protocol_frame_t) + data_len;
+    LOG_DEBUG("Need total %u bytes, received %d, need more %u", need_len, received, need_len - received);
+
+    /* 如果数据不完整，继续接收 */
+    if (need_len > (uint32_t)received) {
+        int to_recv = need_len - received;
+        int recved = tcp_recv(sess->sockfd, buf + received, to_recv, 5000);
+        if (recved <= 0) {
+            LOG_DEBUG("Failed to receive remaining data");
             return -1;
         }
+        received += recved;
+        LOG_DEBUG("Now have %d bytes", received);
     }
 
+    /* 填充 frame 结构 */
+    frame->magic = PROTOCOL_MAGIC;
+    frame->version = 1;
+    frame->cmd = frame_cmd;
+    frame->seq = frame_seq;
+    frame->length = data_len;
+    frame->checksum = frame_checksum;
+
+    /* 验证校验和 */
+    uint8_t* payload_data = buf + sizeof(protocol_frame_t);
+
+    LOG_WARN("Calculating CRC32 on %u bytes starting at offset %u", data_len, sizeof(protocol_frame_t));
+    LOG_WARN("buf total size: %d, payload_data points to byte %d", received, (int)(payload_data - buf));
+
+    uint32_t calc_checksum = crc32(payload_data, data_len);
+
+    LOG_DEBUG("Payload data (first 32 bytes):");
+    char debug_buf1[256] = {0};
+    for (int i = 0; i < 64; i++) {
+        snprintf(tmp, sizeof(tmp), "%02X ", payload_data[i]);
+        strncat(debug_buf1, tmp, sizeof(debug_buf1) - strlen(debug_buf1) - 1);
+    }
+    LOG_WARN("Payload bytes 0-63: %s", debug_buf1);
+
+    char debug_buf2[256] = {0};
+    for (int i = 64; i < data_len; i++) {
+        snprintf(tmp, sizeof(tmp), "%02X ", payload_data[i]);
+        strncat(debug_buf2, tmp, sizeof(debug_buf2) - strlen(debug_buf2) - 1);
+    }
+    LOG_WARN("Payload bytes 64-127: %s", debug_buf2);
+
+    if (calc_checksum != frame_checksum) {
+        LOG_WARN("Checksum mismatch: expected 0x%08X, got 0x%08X", frame_checksum, calc_checksum);
+        return -1;
+    }
+
+    /* 复制载荷到���出缓冲区 */
+    if (payload && data_len > 0 && data_len > 0) {
+        memcpy(payload, payload_data, data_len);
+    }
+
+    LOG_DEBUG("Frame parsed successfully");
     return 0;
 }
 
@@ -167,6 +228,10 @@ void handle_client(void* arg) {
                 handle_file_rename(sess, &frame, payload);
                 break;
 
+            case CMD_FILE_EDIT:
+                handle_file_edit(sess, &frame, payload);
+                break;
+
             case CMD_FILE_UPLOAD_START:
                 handle_upload_start(sess, &frame, payload);
                 break;
@@ -242,6 +307,8 @@ void handle_client(void* arg) {
 
 void handle_login(client_session_t* sess, protocol_frame_t* frame, uint8_t* payload) {
     login_request_t* req = (login_request_t*)payload;
+
+    LOG_WARN("Login attempt: username='%s', password_md5='%s'", req->username, req->password);
 
     /* 验证用户 */
     permission_t perm;
@@ -526,6 +593,61 @@ void handle_file_rename(client_session_t* sess, protocol_frame_t* frame, uint8_t
 
     send_response(sess, CMD_FILE_RENAME_RESP, frame->seq, ERR_SUCCESS, NULL, 0);
     LOG_INFO("File renamed: %s -> %s", old_path, new_path);
+}
+
+void handle_file_edit(client_session_t* sess, protocol_frame_t* frame, uint8_t* payload) {
+    /* 检查认证和权限 */
+    if (!sess->is_authenticated) {
+        send_error(sess, CMD_FILE_EDIT_RESP, frame->seq, ERR_NOT_AUTHENTICATED, "Not authenticated");
+        return;
+    }
+
+    if (sess->perm != PERM_RW) {
+        send_error(sess, CMD_FILE_EDIT_RESP, frame->seq, ERR_PERMISSION_DENIED, "Permission denied");
+        return;
+    }
+
+    /* 解析请求 */
+    file_edit_request_t* req = (file_edit_request_t*)payload;
+    char full_path[512];
+    build_full_path(full_path, sizeof(full_path), g_config->root_dir, req->path);
+
+    /* 检查路径安全性 */
+    if (check_path_safety(full_path) < 0) {
+        send_error(sess, CMD_FILE_EDIT_RESP, frame->seq, ERR_INVALID_PATH, "Invalid path");
+        return;
+    }
+
+    /* 检查文件是否存在 */
+    if (access(full_path, F_OK) != 0) {
+        send_error(sess, CMD_FILE_EDIT_RESP, frame->seq, ERR_FILE_NOT_FOUND, "File not found");
+        return;
+    }
+
+    /* 限制文件大小（64KB） */
+    if (req->content_len > 65536) {
+        send_error(sess, CMD_FILE_EDIT_RESP, frame->seq, ERR_FILE_TOO_LARGE, "Content too large (max 64KB)");
+        return;
+    }
+
+    /* 写入新内容 */
+    FILE* fp = fopen(full_path, "wb");
+    if (fp == NULL) {
+        send_error(sess, CMD_FILE_EDIT_RESP, frame->seq, ERR_FAILED, "Failed to open file for writing");
+        LOG_ERROR("Failed to open file for edit: %s", full_path);
+        return;
+    }
+
+    size_t written = fwrite(req->new_content, 1, req->content_len, fp);
+    fclose(fp);
+
+    if (written != req->content_len) {
+        send_error(sess, CMD_FILE_EDIT_RESP, frame->seq, ERR_SERVER_INTERNAL, "Failed to write file");
+        return;
+    }
+
+    send_response(sess, CMD_FILE_EDIT_RESP, frame->seq, ERR_SUCCESS, NULL, 0);
+    LOG_INFO("File edited: %s, size=%u", req->path, req->content_len);
 }
 
 void handle_upload_start(client_session_t* sess, protocol_frame_t* frame, uint8_t* payload) {

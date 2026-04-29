@@ -173,12 +173,13 @@ int get_process_list(process_info_t* list, int max_count) {
             char line[256];
             while (fgets(line, sizeof(line), fp)) {
                 if (strncmp(line, "Uid:", 4) == 0) {
-                    unsigned int uid;
-                    sscanf(line, "Uid: %u", &uid);
-                    struct passwd* pw = getpwuid(uid);
-                    if (pw) {
-                        strncpy(list[count].user, pw->pw_name, sizeof(list[count].user) - 1);
-                    }
+                    // getpwuid 在静态链接时有问题，跳过用户名获取
+                    // unsigned int uid;
+                    // sscanf(line, "Uid: %u", &uid);
+                    // struct passwd* pw = getpwuid(uid);
+                    // if (pw) {
+                    //     strncpy(list[count].user, pw->pw_name, sizeof(list[count].user) - 1);
+                    // }
                 }
             }
             fclose(fp);

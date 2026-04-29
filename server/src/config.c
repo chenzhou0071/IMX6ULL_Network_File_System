@@ -5,6 +5,7 @@
 
 #include "config.h"
 #include "log.h"
+#include "md5.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -106,52 +107,58 @@ server_config_t* config_load(const char* filepath) {
 
         /* 解析键值对 */
         char* eq = strchr(trimmed, '=');
-        if (eq == NULL) continue;
+        char* key;
+        char* value;
 
-        *eq = '\0';
-        char* key = trim(trimmed);
-        char* value = trim(eq + 1);
+        if (eq != NULL) {
+            *eq = '\0';
+            key = trim(trimmed);
+            value = trim(eq + 1);
+        } else {
+            key = NULL;
+            value = trimmed;
+        }
 
         if (strcmp(section, "server") == 0) {
-            if (strcmp(key, "port") == 0) {
+            if (key && strcmp(key, "port") == 0) {
                 config->port = (uint16_t)atoi(value);
-            } else if (strcmp(key, "max_connections") == 0) {
+            } else if (key && strcmp(key, "max_connections") == 0) {
                 config->max_connections = atoi(value);
-            } else if (strcmp(key, "timeout") == 0) {
+            } else if (key && strcmp(key, "timeout") == 0) {
                 config->timeout = atoi(value);
-            } else if (strcmp(key, "log_level") == 0) {
+            } else if (key && strcmp(key, "log_level") == 0) {
                 strncpy(config->log_level, value, sizeof(config->log_level) - 1);
             }
         } else if (strcmp(section, "users") == 0) {
             /* 用户格式: username:password:perm */
             if (config->user_count < MAX_USERS) {
-                user_t* user = &config->users[config->user_count];
                 char* colon1 = strchr(value, ':');
                 if (colon1) {
+                    user_t* user = &config->users[config->user_count];
                     *colon1 = '\0';
                     strncpy(user->username, value, sizeof(user->username) - 1);
                     char* colon2 = strchr(colon1 + 1, ':');
                     if (colon2) {
                         *colon2 = '\0';
-                        strncpy(user->password, colon1 + 1, sizeof(user->password) - 1);
+                        char* plaintext_password = colon1 + 1;
+                        md5_hex_string((uint8_t*)plaintext_password, strlen(plaintext_password), user->password);
                         user->perm = parse_permission(colon2 + 1);
-                    } else {
-                        strncpy(user->password, colon1 + 1, sizeof(user->password) - 1);
-                        user->perm = PERM_RO;
+                        LOG_WARN("Loaded user [%d]: username='%s', plaintext='%s', md5='%s', perm=%d",
+                                 config->user_count, user->username, plaintext_password, user->password, user->perm);
+                        config->user_count++;
                     }
-                    config->user_count++;
                 }
             }
         } else if (strcmp(section, "paths") == 0) {
-            if (strcmp(key, "root_dir") == 0) {
+            if (key && strcmp(key, "root_dir") == 0) {
                 strncpy(config->root_dir, value, sizeof(config->root_dir) - 1);
-            } else if (strcmp(key, "upload_dir") == 0) {
+            } else if (key && strcmp(key, "upload_dir") == 0) {
                 strncpy(config->upload_dir, value, sizeof(config->upload_dir) - 1);
-            } else if (strcmp(key, "log_dir") == 0) {
+            } else if (key && strcmp(key, "log_dir") == 0) {
                 strncpy(config->log_dir, value, sizeof(config->log_dir) - 1);
             }
         } else if (strcmp(section, "transfer") == 0) {
-            if (strcmp(key, "max_concurrent") == 0) {
+            if (key && strcmp(key, "max_concurrent") == 0) {
                 config->max_concurrent_transfers = atoi(value);
             } else if (strcmp(key, "max_file_size") == 0) {
                 config->max_file_size = (uint32_t)atoi(value);
@@ -192,14 +199,20 @@ bool config_verify_user(const server_config_t* config,
         return false;
     }
 
+    LOG_WARN("Verifying user: input_username='%s', input_password_md5='%s'", username, password_md5);
+
     for (int i = 0; i < config->user_count; i++) {
+        LOG_WARN("  Checking user[%d]: stored_username='%s', stored_password='%s'",
+                 i, config->users[i].username, config->users[i].password);
         if (strcmp(config->users[i].username, username) == 0 &&
             strcmp(config->users[i].password, password_md5) == 0) {
             *perm = config->users[i].perm;
+            LOG_WARN("  Match found! perm=%d", *perm);
             return true;
         }
     }
 
+    LOG_WARN("  No match found");
     return false;
 }
 

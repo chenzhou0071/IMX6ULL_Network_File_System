@@ -32,6 +32,7 @@ void handle_file_list(client_session_t* sess, protocol_frame_t* frame, uint8_t* 
 void handle_file_read(client_session_t* sess, protocol_frame_t* frame, uint8_t* payload);
 void handle_file_delete(client_session_t* sess, protocol_frame_t* frame, uint8_t* payload);
 void handle_file_rename(client_session_t* sess, protocol_frame_t* frame, uint8_t* payload);
+void handle_file_edit(client_session_t* sess, protocol_frame_t* frame, uint8_t* payload);
 void handle_upload_start(client_session_t* sess, protocol_frame_t* frame, uint8_t* payload);
 void handle_upload_data(client_session_t* sess, protocol_frame_t* frame, uint8_t* payload);
 void handle_upload_pause(client_session_t* sess, protocol_frame_t* frame, uint8_t* payload);
