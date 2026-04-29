@@ -15,3 +15,7 @@ server/build/
 # Logs
 logs/
 *.log
+
+# Python cache
+__pycache__/
+*.pyc
