@@ -562,17 +562,16 @@ void handle_file_rename(client_session_t* sess, protocol_frame_t* frame, uint8_t
         return;
     }
 
-    /* 解析请求（格式：old_path:new_path） */
+    /* 解析请求（格式：old_path\0new_path） */
     char* req_str = (char*)payload;
-    char* colon = strchr(req_str, ':');
-    if (colon == NULL) {
+    char* null_pos = strchr(req_str, '\0');
+    if (null_pos == NULL || null_pos == req_str) {
         send_error(sess, CMD_FILE_RENAME_RESP, frame->seq, ERR_INVALID_PATH, "Invalid rename format");
         return;
     }
 
-    *colon = '\0';
     char* old_path = req_str;
-    char* new_path = colon + 1;
+    char* new_path = null_pos + 1;
 
     char full_old[512], full_new[512];
     build_full_path(full_old, sizeof(full_old), g_config->root_dir, old_path);
@@ -618,10 +617,20 @@ void handle_file_edit(client_session_t* sess, protocol_frame_t* frame, uint8_t* 
         return;
     }
 
-    /* 检查文件是否存在 */
+    /* 检查文件是否存在，不存在则创建 */
     if (access(full_path, F_OK) != 0) {
-        send_error(sess, CMD_FILE_EDIT_RESP, frame->seq, ERR_FILE_NOT_FOUND, "File not found");
-        return;
+        /* 文件不存在，检查父目录是否存在 */
+        char dir_path[512];
+        strncpy(dir_path, full_path, sizeof(dir_path) - 1);
+        char* last_slash = strrchr(dir_path, '/');
+        if (last_slash) {
+            *last_slash = '\0';
+            if (access(dir_path, F_OK) != 0) {
+                send_error(sess, CMD_FILE_EDIT_RESP, frame->seq, ERR_INVALID_PATH, "Parent directory not found");
+                return;
+            }
+        }
+        /* 文件不存在是正常的，继续创建 */
     }
 
     /* 限制文件大小（64KB） */

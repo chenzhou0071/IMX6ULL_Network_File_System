@@ -142,6 +142,10 @@ int get_process_list(process_info_t* list, int max_count) {
         int pid = atoi(entry->d_name);
         if (pid <= 0) continue;
 
+        /* 初始化结构体 */
+        memset(&list[count], 0, sizeof(process_info_t));
+        list[count].pid = pid;
+
         /* 读取进程信息 */
         char path[256];
         snprintf(path, sizeof(path), "/proc/%d/stat", pid);
@@ -149,22 +153,16 @@ int get_process_list(process_info_t* list, int max_count) {
         FILE* fp = fopen(path, "r");
         if (fp == NULL) continue;
 
-        /* 解析 stat 文件 */
-        unsigned long utime, stime;
-        long rss;
-        char comm[64], state;
-
-        fscanf(fp, "%d (%s) %c", &list[count].pid, comm, &state);
-        list[count].state = state;
-
-        /*跳过剩余字段直到找到utime和stime */
-        for (int i = 0; i < 11; i++) {
-            unsigned long tmp;
-            fscanf(fp, "%lu", &tmp);
+        /* 解析 stat 文件 - 手动读取进程名 */
+        char line[1024];
+        if (fgets(line, sizeof(line), fp)) {
+            char comm[64] = {0};
+            char state;
+            /* 格式: pid (comm) state ... */
+            sscanf(line, "%d (%63[^)]) %c", &list[count].pid, comm, &state);
+            list[count].state = (uint8_t)state;
+            strncpy(list[count].name, comm, sizeof(list[count].name) - 1);
         }
-        fscanf(fp, "%lu %lu", &utime, &stime);
-
-        /* 获取内存信息 */
         fclose(fp);
 
         snprintf(path, sizeof(path), "/proc/%d/status", pid);
@@ -199,9 +197,11 @@ int get_process_list(process_info_t* list, int max_count) {
             fclose(fp);
         }
 
-        strncpy(list[count].name, comm, sizeof(list[count].name) - 1);
+        /* 设置状态名称 */
         snprintf(list[count].state_name, sizeof(list[count].state_name),
-                 state == 'R' ? "Running" : state == 'S' ? "Sleeping" : state == 'D' ? "Disk sleep" : "Unknown");
+                 list[count].state == 'R' ? "Running" :
+                 list[count].state == 'S' ? "Sleeping" :
+                 list[count].state == 'D' ? "Disk sleep" : "Unknown");
 
         count++;
     }
