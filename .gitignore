@@ -1,0 +1,32 @@
+# Claude Code
+.claude/
+
+# Ignore everything in docs/
+docs/**
+
+# Only allow these two design documents
+!docs/plan/
+!docs/plan/2026-04-01-嵌入式设备管理器设计.md
+!docs/plan/2026-04-28-嵌入式设备管理器-design.md
+
+# Build output
+server/build/
+client/build/
+client/release/
+client/debug/
+client/*.o
+client/*.a
+client/Makefile*
+client/.qmake.stash
+client/ui_*.h
+build/
+release/
+debug/
+
+# Logs
+logs/
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
